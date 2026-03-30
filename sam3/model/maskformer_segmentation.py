@@ -129,20 +129,20 @@ class SegmentationHead(nn.Module):
 
             backbone_visual_feats[-1] = encoder_visual_embed
             if self.act_ckpt:
-                pixel_embed = checkpoint.checkpoint(
+                pixel_embed, pixel_embed_list = checkpoint.checkpoint(
                     self.pixel_decoder, backbone_visual_feats, use_reentrant=False
                 )
             else:
-                pixel_embed = self.pixel_decoder(backbone_visual_feats)
+                pixel_embed, pixel_embed_list = self.pixel_decoder(backbone_visual_feats)
         else:
             backbone_feats = [x.to(model_device) for x in backbone_feats]
-            pixel_embed = self.pixel_decoder(backbone_feats)
+            pixel_embed, pixel_embed_list = self.pixel_decoder(backbone_feats)
             if pixel_embed.shape[0] == 1:
                 # For batch_size=1 training, we can avoid the indexing to save memory
                 pixel_embed = pixel_embed.squeeze(0)
             else:
                 pixel_embed = pixel_embed[image_ids, ...]
-        return pixel_embed
+        return pixel_embed, pixel_embed_list
 
     def forward(
         self,
@@ -155,7 +155,7 @@ class SegmentationHead(nn.Module):
         if self.use_encoder_inputs:
             assert encoder_hidden_states is not None
 
-        pixel_embed = self._embed_pixels(
+        pixel_embed, pixel_embed_list = self._embed_pixels(
             backbone_feats=backbone_feats,
             image_ids=image_ids,
             encoder_hidden_states=encoder_hidden_states,
@@ -168,7 +168,7 @@ class SegmentationHead(nn.Module):
         else:
             mask_pred = self.mask_predictor(obj_queries[-1], pixel_embed)
 
-        return {"pred_masks": mask_pred}
+        return {"pred_masks": mask_pred, "pixel_embed_list": pixel_embed_list}
 
 
 class PixelDecoder(nn.Module):
@@ -205,6 +205,7 @@ class PixelDecoder(nn.Module):
     def forward(self, backbone_feats: List[torch.Tensor]):
         # Assumes backbone features are already projected (C == hidden dim)
 
+        pixel_embed_list = [backbone_feats[-1]]
         prev_fpn = backbone_feats[-1]
         fpn_feats = backbone_feats[:-1]
         for layer_idx, bb_feat in enumerate(fpn_feats[::-1]):
@@ -217,8 +218,9 @@ class PixelDecoder(nn.Module):
                 layer_idx = 0
             prev_fpn = self.conv_layers[layer_idx](prev_fpn)
             prev_fpn = F.relu(self.norms[layer_idx](prev_fpn))
+            pixel_embed_list.append(prev_fpn)
 
-        return prev_fpn
+        return prev_fpn, pixel_embed_list
 
 
 class UniversalSegmentationHead(SegmentationHead):
@@ -305,7 +307,7 @@ class UniversalSegmentationHead(SegmentationHead):
                 .squeeze(1)
             )
 
-        pixel_embed = self._embed_pixels(
+        pixel_embed, pixel_embed_list = self._embed_pixels(
             backbone_feats=backbone_feats,
             image_ids=image_ids,
             encoder_hidden_states=encoder_hidden_states,
@@ -324,4 +326,5 @@ class UniversalSegmentationHead(SegmentationHead):
             "pred_masks": mask_pred,
             "semantic_seg": self.semantic_seg_head(pixel_embed),
             "presence_logit": presence_logit,
+            "pixel_embed_list": pixel_embed_list,
         }
