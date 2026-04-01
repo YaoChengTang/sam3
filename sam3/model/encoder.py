@@ -423,6 +423,12 @@ class TransformerEncoder(nn.Module):
             spatial_shapes,
         ) = self._prepare_multilevel_features(src, src_key_padding_masks, pos)
 
+        # print(f"src_flatten shape: {src_flatten.shape}")
+        # print(f"level_start_index: {level_start_index}")
+        # print(f"valid_ratios: {valid_ratios}")
+        # print(f"spatial_shapes: {spatial_shapes}")
+        # print(f"src: {[ele.shape for ele in src]}")
+
         reference_points = self.get_reference_points(
             spatial_shapes, valid_ratios, device=src_flatten.device
         )
