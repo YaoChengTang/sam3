@@ -27,6 +27,7 @@ except ModuleNotFoundError:
     # compatibility for older timm versions
     from timm.models.layers import DropPath, Mlp, trunc_normal_
 from torch import Tensor
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .model_misc import LayerScale
 
@@ -501,7 +502,10 @@ class Attention(nn.Module):
             q = q.reshape(B, self.num_heads, H * W, -1)
             k = k.reshape(B, self.num_heads, H * W, -1)
 
-        x = F.scaled_dot_product_attention(q, k, v)
+        # Exclude flash attention backend to avoid checkpoint recompute metadata
+        # mismatch on Blackwell (B200) GPUs. mem_efficient is nearly as fast.
+        with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+            x = F.scaled_dot_product_attention(q, k, v)
 
         if ndim == 4:
             x = (
