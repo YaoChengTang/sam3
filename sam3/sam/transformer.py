@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from sam3.sam.rope import apply_rotary_enc, apply_rotary_enc_real, compute_axial_cis
 from torch import nn, Tensor
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
 from .common import MLPBlock
 
@@ -253,10 +254,8 @@ class Attention(nn.Module):
                 q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
             ).transpose(1, 2)
         else:
-            torch.backends.cuda.enable_flash_sdp(True)
-            torch.backends.cuda.enable_math_sdp(True)
-            torch.backends.cuda.enable_mem_efficient_sdp(True)
-            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+            with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+                out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)
@@ -348,10 +347,8 @@ class RoPEAttention(Attention):
                 q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
             ).transpose(1, 2)
         else:
-            torch.backends.cuda.enable_flash_sdp(True)
-            torch.backends.cuda.enable_math_sdp(True)
-            torch.backends.cuda.enable_mem_efficient_sdp(True)
-            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+            with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+                out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)
